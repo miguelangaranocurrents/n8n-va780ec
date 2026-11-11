@@ -574,7 +574,18 @@ export function useWorkflowDocumentNodes(deps: WorkflowDocumentNodesDeps) {
 		invalid: INodeCredentialsDetails;
 		type: string;
 	}) {
-		nodes.value.forEach((node: INodeUi) => {
+		let anyChanged = false;
+		// Replace through updateNodeAtIndex with a fresh credentials object: mutating
+		// in place would make the later node update look like a no-op, so the
+		// workflow would never be marked dirty and the replacement never saved.
+		const replace = (nodeIndex: number, nodeCredentials: INodeCredentials) => {
+			const changed = updateNodeAtIndex(nodeIndex, {
+				credentials: { ...nodeCredentials, [data.type]: data.credentials },
+			});
+			anyChanged = anyChanged || changed;
+		};
+
+		nodes.value.forEach((node: INodeUi, nodeIndex: number) => {
 			const nodeCredentials: INodeCredentials | undefined = (node as unknown as INode).credentials;
 			if (!nodeCredentials?.[data.type]) {
 				return;
@@ -582,25 +593,28 @@ export function useWorkflowDocumentNodes(deps: WorkflowDocumentNodesDeps) {
 
 			const nodeCredentialDetails: INodeCredentialsDetails | string = nodeCredentials[data.type];
 
-			if (
-				typeof nodeCredentialDetails === 'string' &&
-				nodeCredentialDetails === data.invalid.name
-			) {
-				(node.credentials as INodeCredentials)[data.type] = data.credentials;
+			if (typeof nodeCredentialDetails === 'string') {
+				if (nodeCredentialDetails === data.invalid.name) {
+					replace(nodeIndex, nodeCredentials);
+				}
 				return;
 			}
 
 			if (nodeCredentialDetails.id === null) {
 				if (nodeCredentialDetails.name === data.invalid.name) {
-					(node.credentials as INodeCredentials)[data.type] = data.credentials;
+					replace(nodeIndex, nodeCredentials);
 				}
 				return;
 			}
 
 			if (nodeCredentialDetails.id === data.invalid.id) {
-				(node.credentials as INodeCredentials)[data.type] = data.credentials;
+				replace(nodeIndex, nodeCredentials);
 			}
 		});
+
+		if (anyChanged) {
+			void onStateDirty.trigger();
+		}
 	}
 
 	// Assign credential to all nodes that support it but don't have it set
